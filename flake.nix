@@ -1,114 +1,105 @@
 {
-  description = "NixOS configuration";
+  description = "A simple flake for an atomic system";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
-
-    nixos-wsl.url = "github:nix-community/NixOS-WSL";
-    nixos-wsl.inputs.nixpkgs.follows = "nixpkgs";
-
-    home-manager.url = "github:nix-community/home-manager/release-23.11";
-    home-manager.inputs.nixpkgs.follows = "nixpkgs";
-
-    sops-nix.url = "github:Mic92/sops-nix";
-    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
-
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nur.url = "github:nix-community/NUR";
-
-    nix-index-database.url = "github:Mic92/nix-index-database";
-    nix-index-database.inputs.nixpkgs.follows = "nixpkgs";
+    nixvim.url = "github:Sly-Harvey/nixvim";
+    hyprland.url = "github:hyprwm/Hyprland";
+    Hyprspace = {
+      url = "github:KZDKM/Hyprspace";
+      inputs.hyprland.follows = "hyprland";
+    };
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    spicetify-nix = {
+      url = "github:the-argus/spicetify-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }@inputs:
-    let
-      secrets = builtins.fromJSON (builtins.readFile "${self}/secrets/secrets.json");
+  outputs = {nixpkgs, ...} @ inputs: let
 
-      nixpkgsWithOverlays = with inputs; rec {
-        config = {
-          allowUnfree = true;
-          permittedInsecurePackages = [
-            # add any insecure packages you absolutely need here
-          ];
-        };
-        overlays = [
-          nur.overlay
-          (_final: prev: {
-            # this allows us to reference pkgs.unstable
-            unstable = import nixpkgs-unstable {
-              inherit (prev) system;
-              inherit config;
-            };
-          })
+    username = "harvey"; # REPLACE THIS WITH YOUR USERNAME!!! (if manually installing, this is Required.)
+    system = "x86_64-linux"; # REPLACE THIS WITH YOUR ARCHITECTURE (Rarely need to)
+    locale = "en_GB.UTF-8"; # REPLACE THIS WITH YOUR LOCALE
+    timezone = "Europe/London"; # REPLACE THIS WITH YOUR TIMEZONE
+
+    lib = nixpkgs.lib;
+  in {
+    nixosConfigurations = {
+      # This is the only config you will have to change (Desktop and Laptop are for my personal use and may not work for you)
+      nixos = lib.nixosSystem {
+        inherit system;
+        specialArgs = {inherit username locale timezone inputs;} // inputs;
+        modules = [
+          ./hosts/Default/configuration.nix
         ];
       };
-
-      configurationDefaults = args: {
-        nixpkgs = nixpkgsWithOverlays;
-        home-manager.useGlobalPkgs = true;
-        home-manager.useUserPackages = true;
-        home-manager.backupFileExtension = "hm-backup";
-        home-manager.extraSpecialArgs = args;
+      Desktop = lib.nixosSystem {
+        inherit system;
+        specialArgs = let
+          hostname = "NixOS-Desktop";
+        in
+          {inherit username hostname inputs;} // inputs;
+        modules = [
+          ./hosts/Desktop/configuration.nix
+        ];
       };
-
-      argDefaults = {
-        inherit secrets inputs self nix-index-database sops-nix;
-        channels = {
-          inherit nixpkgs nixpkgs-unstable;
-        };
+      Laptop = lib.nixosSystem {
+        inherit system;
+        specialArgs = let
+          hostname = "NixOS-Laptop";
+        in
+          {inherit username hostname inputs;} // inputs;
+        modules = [
+          ./hosts/Laptop/configuration.nix
+        ];
       };
-
-      mkNixosConfiguration = {
-        system ? "x86_64-linux",
-        hostname,
-        username,
-        args ? {},
-        modules,
-      }: let
-        specialArgs = argDefaults // {inherit hostname username;} // args;
-      in
-        nixpkgs.lib.nixosSystem {
-          inherit system specialArgs;
-          modules =
-            [
-              (configurationDefaults specialArgs)
-              home-manager.nixosModules.home-manager
-            ]
-            ++ modules;
-        };
-    in {
-      formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.alejandra;
-
-      nixosConfigurations = {
-        heima = nixpkgs.lib.nixosSystem {
-          hostname = "heima";
-          username = "steinardth";
-          modules = [
-            ./hosts/heima/configuration.nix
-          ];
-        };
-        lappi = nixpkgs.lib.nixosSystem {
-          hostname = "lappi";
-          username = "steinardth";
-          modules = [
-            ./hosts/lappi/configuration.nix
-          ];
-        };
-        vinna = nixpkgs.lib.nixosSystem {
-          hostname = "vinna";
-          username = "steinardth";
-          modules = [
-            ./hosts/vinna/configuration.nix
-          ];
-        };
-        wsl = nixpkgs.lib.nixosSystem {
-          hostname = "wsl";
-          username = "nixos";
-          modules = [
-            nixos-wsl.nixosModules.wsl
-            ./hosts/wsl/configuration.nix
-          ];
-        };
+      iso = lib.nixosSystem {
+        inherit system;
+        specialArgs =
+          {
+            username = "harvey";
+            inherit inputs;
+          }
+          // inputs;
+        modules = [
+          ./hosts/ISO/configuration.nix
+        ];
+      };
+      Test = lib.nixosSystem {
+        inherit system;
+        specialArgs = {inherit username locale timezone inputs;} // inputs;
+        modules = [
+          ./hosts/Test/configuration.nix
+        ];
       };
     };
+
+    # Standalone home-manager configuration entrypoint
+    # Available through 'home-manager --flake .#your-username@your-hostname'
+    # or 'home-manager --flake .' for current user in current hostname
+    #homeConfigurations = {
+    #  ${username} = home-manager.lib.homeManagerConfiguration {
+    #    pkgs = nixpkgs.legacyPackages.${system};
+    #    modules = [
+    #      ./home/home.nix
+    #      {
+    #        home = {
+    #          username = username;
+    #          homeDirectory = "/home/${username}";
+    #          stateVersion = "23.11";
+    #        };
+    #      }
+    #    ];
+    #  };
+    #};
+  };
 }
